@@ -1,18 +1,11 @@
 #include <Arduino.h>
-#include <MFRC522.h>
+#include "MFRC522.h"
 #include <vector>
 
 #define CS_PIN 17
 #define MISO_PIN 16
 #define MOSI_PIN 19
 #define SCK_PIN 18
-
-/*
-#define CS_PIN D2
-#define MISO_PIN D3
-#define MOSI_PIN D10
-#define SCK_PIN D8
-*/
 
 MFRC522 mfrc522(CS_PIN, UNUSED_PIN);
 unsigned long lastCardId = 0;

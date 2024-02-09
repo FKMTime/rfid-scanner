@@ -88,7 +88,8 @@
 #endif
 
 // Probaly no longer in use.
-#define MFRC522_SPICLOCK 0x00241001			// MFRC522 accept upto 10MHz
+#define SPI_CLOCK_DIV4 0x00241001 // from esp32 source
+#define MFRC522_SPICLOCK SPI_CLOCK_DIV4			// MFRC522 accept upto 10MHz
 
 // Firmware data for self-test
 // Reference values based on firmware version
