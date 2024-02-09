@@ -3,6 +3,8 @@
     let serial: any | null = null;
     let lineBuffer: string = "";
 
+    let lastDuplicated: boolean = false;
+
     async function getSerialPort() {
         //@ts-ignore
         serial = await navigator.serial.requestPort({
@@ -40,8 +42,15 @@
     }
 
     async function scanCard(cardId: number) {
+        lastDuplicated = scannedCards.includes(cardId);
+
         if (scannedCards.includes(cardId)) {
             console.log(`Card ${cardId} already scanned!`);
+
+            scannedCards = scannedCards.filter((c) => c !== cardId);
+            scannedCards.push(cardId);
+            scannedCards = scannedCards;
+
             return;
         }
         scannedCards.push(cardId);
@@ -55,7 +64,8 @@
 {#if serial}
     {#if scannedCards.length > 0}
         <h2>
-            Last Scanned: {scannedCards[scannedCards.length - 1]} | Total: {scannedCards.length}
+            Last Scanned: {scannedCards[scannedCards.length - 1]}
+            {lastDuplicated ? "(DUPLICATED)" : ""} | Total: {scannedCards.length}
         </h2>
 
         <h3>Scanned Cards</h3>
