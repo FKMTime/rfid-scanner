@@ -6,7 +6,7 @@
           "boot2_source": "boot2_w25q080_2_padded_checksum.S",
           "usb_vid": "0x2E8A",
           "usb_pid": "0x000A",
-          "usb_manufacturer": "fw",
+          "usb_manufacturer": "FKM",
           "usb_product": "SerialRFID"        
         }
       },
