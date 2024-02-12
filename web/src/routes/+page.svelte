@@ -23,7 +23,7 @@
                         break;
                     }
 
-                    // Decode the value into a string. if the value ends with /r/r then we have a complete line
+                    // Decode the value into a string. if the value ends with \r\n then we have a complete line
                     let str = new TextDecoder().decode(value);
                     if (str.endsWith("\r\n")) {
                         lineBuffer += str;
