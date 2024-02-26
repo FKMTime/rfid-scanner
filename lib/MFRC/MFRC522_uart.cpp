@@ -9,7 +9,7 @@
 #include <Arduino.h>
 #include <MFRC522.h>
 
-MFRC522_UART::MFRC522_UART(HardwareSerial &serial, byte resetPin)
+MFRC522_UART::MFRC522_UART(Adafruit_USBD_CDC &serial, byte resetPin)
 	: _resetPowerDownPin(resetPin), _serialPort(serial) {}
 
 bool MFRC522_UART::PCD_Init() {

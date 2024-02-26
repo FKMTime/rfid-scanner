@@ -502,7 +502,7 @@ protected:
 
 class MFRC522_UART : public MFRC522_BUS_DEVICE {
 public:
-	MFRC522_UART(HardwareSerial &serial = Serial, byte _resetPowerDownPin = UNUSED_PIN);
+	MFRC522_UART(Adafruit_USBD_CDC &serial = Serial, byte _resetPowerDownPin = UNUSED_PIN);
 	bool PCD_Init();
 	void PCD_WriteRegister(MFRC522::PCD_Register reg, byte value);
 	void PCD_WriteRegister(MFRC522::PCD_Register reg, byte count, byte *values);
@@ -511,7 +511,7 @@ public:
 
 private:
 	byte _resetPowerDownPin;
-	HardwareSerial &_serialPort; // Defaults to Serial (standard serial port)
+	Adafruit_USBD_CDC &_serialPort; // Defaults to Serial (standard serial port)
 };
 
 #endif
