@@ -38,7 +38,6 @@ void loop() {
   } else if(millis() - blinkLedTimeout > 5500) {
     digitalWrite(LED_BUILTIN, LOW);
     blinkLedTimeout = millis();
-    mfrc522.PCD_DumpVersionToSerial();
   }
 
   if(mfrc522.PICC_IsNewCardPresent() && mfrc522.PICC_ReadCardSerial())
