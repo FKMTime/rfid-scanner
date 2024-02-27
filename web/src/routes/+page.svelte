@@ -14,6 +14,11 @@
         if (!serial) return;
         await serial.open({ baudRate: 9600 });
 
+        const writer = serial.writable.getWriter();
+        const data = new Uint8Array([69]);
+        await writer.write(data);
+        writer.releaseLock();
+
         while (serial.readable) {
             const reader = serial.readable.getReader();
             try {
