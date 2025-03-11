@@ -1,27 +1,77 @@
 #![no_std]
 #![no_main]
-use core::fmt::Write as _;
+#![feature(alloc_error_handler)]
 
+use alloc_cortex_m::CortexMHeap;
+use blocking_mfrc522::MFRC522;
+use core::alloc::Layout;
+use cortex_m::delay::Delay;
+use embedded_hal::delay::DelayNs;
 use panic_halt as _;
+use rp_pico::Pins;
+use rp_pico::hal::fugit::RateExtU32;
+use rp_pico::hal::gpio::FunctionSpi;
 use rp_pico::hal::pac::interrupt;
+use rp_pico::hal::rom_data::reset_to_usb_boot;
+use rp_pico::hal::{Sio, Timer};
 use rp_pico::{entry, hal::Clock};
 use usb_device::{
     bus::UsbBusAllocator,
     device::{StringDescriptors, UsbDevice, UsbDeviceBuilder, UsbVidPid},
 };
 use usbd_hid::descriptor::KeyboardReport;
-use usbd_hid::{
-    descriptor::{MouseReport, SerializedDescriptor},
-    hid_class::HIDClass,
-};
+use usbd_hid::{descriptor::SerializedDescriptor, hid_class::HIDClass};
+
+extern crate alloc;
+
+const KEY_PRESS_TIME: u32 = 8;
 
 static mut USB_DEVICE: Option<UsbDevice<rp_pico::hal::usb::UsbBus>> = None;
 static mut USB_BUS: Option<UsbBusAllocator<rp_pico::hal::usb::UsbBus>> = None;
 static mut USB_HID: Option<HIDClass<rp_pico::hal::usb::UsbBus>> = None;
+static mut OWN_DELAY: Option<Delay> = None;
+static mut TIMER: Option<Timer> = None;
+
+pub struct OwnDelay {}
+
+impl DelayNs for OwnDelay {
+    fn delay_ns(&mut self, ns: u32) {
+        unsafe {
+            #[allow(static_mut_refs)]
+            if let Some(delay) = OWN_DELAY.as_mut() {
+                delay.delay_us(ns / 1000);
+            }
+        }
+    }
+}
+
+impl DelayNs for &OwnDelay {
+    fn delay_ns(&mut self, ns: u32) {
+        unsafe {
+            #[allow(static_mut_refs)]
+            if let Some(delay) = OWN_DELAY.as_mut() {
+                delay.delay_us(ns / 1000);
+            }
+        }
+    }
+}
+
+#[global_allocator]
+static ALLOCATOR: CortexMHeap = CortexMHeap::empty();
+
+#[alloc_error_handler]
+fn oom(_: Layout) -> ! {
+    cortex_m::asm::bkpt();
+    loop {}
+}
 
 #[entry]
 #[allow(static_mut_refs)]
 fn main() -> ! {
+    let start = cortex_m_rt::heap_start() as usize;
+    let size = 32768;
+    unsafe { ALLOCATOR.init(start, size) }
+
     let mut pac = rp_pico::pac::Peripherals::take().unwrap();
     let mut watchdog = rp_pico::hal::Watchdog::new(pac.WATCHDOG);
     let clocks = rp_pico::hal::clocks::init_clocks_and_plls(
@@ -36,7 +86,50 @@ fn main() -> ! {
     .ok()
     .unwrap();
 
-    let timer = rp_pico::hal::Timer::new(pac.TIMER, &mut pac.RESETS, &clocks);
+    let sio = Sio::new(pac.SIO);
+    let pins = Pins::new(
+        pac.IO_BANK0,
+        pac.PADS_BANK0,
+        sio.gpio_bank0,
+        &mut pac.RESETS,
+    );
+
+    let core = rp_pico::pac::CorePeripherals::take().unwrap();
+    unsafe {
+        OWN_DELAY = Some(cortex_m::delay::Delay::new(
+            core.SYST,
+            clocks.system_clock.freq().to_Hz(),
+        ));
+
+        TIMER = Some(rp_pico::hal::Timer::new(
+            pac.TIMER,
+            &mut pac.RESETS,
+            &clocks,
+        ));
+    }
+
+    let cs = pins.gpio17.into_push_pull_output();
+    let miso = pins.gpio16.into_function::<FunctionSpi>();
+    let mosi = pins.gpio19.into_function::<FunctionSpi>();
+    let sck = pins.gpio18.into_function::<FunctionSpi>();
+
+    let spi = rp_pico::hal::spi::Spi::<_, _, _, 8>::new(pac.SPI0, (mosi, miso, sck));
+    let spi = spi.init(
+        &mut pac.RESETS,
+        clocks.peripheral_clock.freq(),
+        5.MHz(),
+        embedded_hal::spi::MODE_0,
+    );
+    let spi_device = embedded_hal_bus::spi::ExclusiveDevice::new(spi, cs, OwnDelay {}).unwrap();
+
+    let mut mfrc522 = MFRC522::new(spi_device, || unsafe {
+        if let Some(timer) = TIMER {
+            timer.get_counter().duration_since_epoch().to_micros()
+        } else {
+            0
+        }
+    });
+    _ = mfrc522.pcd_init();
 
     let usb_bus = usb_device::bus::UsbBusAllocator::new(rp_pico::hal::usb::UsbBus::new(
         pac.USBCTRL_REGS,
@@ -66,61 +159,63 @@ fn main() -> ! {
         .unwrap()
         .device_class(0)
         .build();
+
     unsafe {
-        // Note (safety): This is safe as interrupts haven't been started yet
         USB_DEVICE = Some(usb_dev);
     }
 
     unsafe {
-        // Enable the USB interrupt
         rp_pico::pac::NVIC::unmask(rp_pico::hal::pac::Interrupt::USBCTRL_IRQ);
     };
-    let core = rp_pico::pac::CorePeripherals::take().unwrap();
-    let mut delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().to_Hz());
 
+    let mut delay = OwnDelay {};
     loop {
-        let input = "563748265478\n";
-        for c in input.chars() {
-            let h = char_to_hid(c);
-            let kb = KeyboardReport {
-                keycodes: [h.0, 0, 0, 0, 0, 0],
-                leds: 0,
-                modifier: h.1,
-                reserved: 0,
-            };
-            push_keyboard(kb).ok().unwrap_or(0);
-            delay.delay_ms(10);
+        if mfrc522.picc_is_new_card_present().is_ok() {
+            let card = mfrc522.get_card(blocking_mfrc522::consts::UidSize::Four);
+            if let Ok(card) = card {
+                if card.get_number() == 1264825046 {
+                    cortex_m::interrupt::disable();
+                    reset_to_usb_boot(0, 0);
+                }
+
+                let input = alloc::format!("{}\n", card.get_number());
+                for c in input.chars() {
+                    let h = char_to_hid(c);
+                    let kb = KeyboardReport {
+                        keycodes: [h.0, 0, 0, 0, 0, 0],
+                        leds: 0,
+                        modifier: h.1,
+                        reserved: 0,
+                    };
+                    push_keyboard(kb).ok().unwrap_or(0);
+                    delay.delay_ms(KEY_PRESS_TIME);
+
+                    let kb = KeyboardReport {
+                        keycodes: [0, 0, 0, 0, 0, 0],
+                        leds: 0,
+                        modifier: 0,
+                        reserved: 0,
+                    };
+                    push_keyboard(kb).ok().unwrap_or(0);
+                    delay.delay_ms(KEY_PRESS_TIME);
+                }
+
+                _ = mfrc522.picc_halta();
+            }
         }
-
-        let kb = KeyboardReport {
-            keycodes: [0, 0, 0, 0, 0, 0],
-            leds: 0,
-            modifier: 0,
-            reserved: 0,
-        };
-        push_keyboard(kb).ok().unwrap_or(0);
-
-        delay.delay_ms(100);
     }
 }
 
 #[allow(static_mut_refs)]
 fn push_keyboard(report: KeyboardReport) -> Result<usize, usb_device::UsbError> {
-    critical_section::with(|_| unsafe {
-        // Now interrupts are disabled, grab the global variable and, if
-        // available, send it a HID report
-        USB_HID.as_mut().map(|hid| hid.push_input(&report))
-    })
-    .unwrap()
+    critical_section::with(|_| unsafe { USB_HID.as_mut().map(|hid| hid.push_input(&report)) })
+        .unwrap()
 }
 
-/// This function is called whenever the USB Hardware generates an Interrupt
-/// Request.
 #[allow(non_snake_case)]
 #[allow(static_mut_refs)]
 #[interrupt]
 unsafe fn USBCTRL_IRQ() {
-    // Handle USB request
     let usb_dev = unsafe { USB_DEVICE.as_mut().unwrap() };
     let usb_hid = unsafe { USB_HID.as_mut().unwrap() };
     usb_dev.poll(&mut [usb_hid]);
@@ -128,7 +223,6 @@ unsafe fn USBCTRL_IRQ() {
 
 const MODIFIER_LEFT_SHIFT: u8 = 0x02;
 fn char_to_hid(c: char) -> (u8, u8) {
-    // Returns (keycode, modifier)
     match c {
         'a'..='z' => ((c as u8 - b'a' + 4), 0),
         'A'..='Z' => ((c as u8 - b'A' + 4), MODIFIER_LEFT_SHIFT),
