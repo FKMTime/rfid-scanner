@@ -1,10 +1,8 @@
 #![no_std]
 #![no_main]
-#![feature(alloc_error_handler)]
 
-use alloc_cortex_m::CortexMHeap;
 use blocking_mfrc522::MFRC522;
-use core::alloc::Layout;
+use core::fmt::Write;
 use cortex_m::delay::Delay;
 use embedded_hal::delay::DelayNs;
 use panic_halt as _;
@@ -21,8 +19,6 @@ use usb_device::{
 };
 use usbd_hid::descriptor::KeyboardReport;
 use usbd_hid::{descriptor::SerializedDescriptor, hid_class::HIDClass};
-
-extern crate alloc;
 
 const KEY_PRESS_TIME: u32 = 8;
 
@@ -56,22 +52,9 @@ impl DelayNs for &OwnDelay {
     }
 }
 
-#[global_allocator]
-static ALLOCATOR: CortexMHeap = CortexMHeap::empty();
-
-#[alloc_error_handler]
-fn oom(_: Layout) -> ! {
-    cortex_m::asm::bkpt();
-    loop {}
-}
-
 #[entry]
 #[allow(static_mut_refs)]
 fn main() -> ! {
-    let start = cortex_m_rt::heap_start() as usize;
-    let size = 32768;
-    unsafe { ALLOCATOR.init(start, size) }
-
     let mut pac = rp_pico::pac::Peripherals::take().unwrap();
     let mut watchdog = rp_pico::hal::Watchdog::new(pac.WATCHDOG);
     let clocks = rp_pico::hal::clocks::init_clocks_and_plls(
@@ -146,16 +129,14 @@ fn main() -> ! {
     let bus_ref = unsafe { USB_BUS.as_ref().unwrap() };
     let usb_hid = HIDClass::new(bus_ref, KeyboardReport::desc(), 1);
     unsafe {
-        // Note (safety): This is safe as interrupts haven't been started yet.
         USB_HID = Some(usb_hid);
     }
 
-    // Create a USB device with a fake VID and PID
-    let usb_dev = UsbDeviceBuilder::new(bus_ref, UsbVidPid(0x16c0, 0x27da))
+    let usb_dev = UsbDeviceBuilder::new(bus_ref, UsbVidPid(0x1234, 0x5678))
         .strings(&[StringDescriptors::default()
-            .manufacturer("Fake company")
-            .product("Twitchy Mousey")
-            .serial_number("TEST")])
+            .manufacturer("FKM")
+            .product("FKM Rfid Scanner")
+            .serial_number("RFID001")])
         .unwrap()
         .device_class(0)
         .build();
@@ -178,7 +159,11 @@ fn main() -> ! {
                     reset_to_usb_boot(0, 0);
                 }
 
-                let input = alloc::format!("{}\n", card.get_number());
+                let uid = card.get_number();
+                let mut buffer = StringBuffer::new();
+                write!(&mut buffer, "{}\n", uid).unwrap();
+                let input = buffer.as_str();
+
                 for c in input.chars() {
                     let h = char_to_hid(c);
                     let kb = KeyboardReport {
@@ -219,6 +204,36 @@ unsafe fn USBCTRL_IRQ() {
     let usb_dev = unsafe { USB_DEVICE.as_mut().unwrap() };
     let usb_hid = unsafe { USB_HID.as_mut().unwrap() };
     usb_dev.poll(&mut [usb_hid]);
+}
+
+struct StringBuffer {
+    buffer: [u8; 16],
+    len: usize,
+}
+
+impl StringBuffer {
+    fn new() -> Self {
+        StringBuffer {
+            buffer: [0; 16],
+            len: 0,
+        }
+    }
+
+    fn as_str(&self) -> &str {
+        core::str::from_utf8(&self.buffer[..self.len]).unwrap()
+    }
+}
+
+impl core::fmt::Write for StringBuffer {
+    fn write_str(&mut self, s: &str) -> core::fmt::Result {
+        let bytes = s.as_bytes();
+        if self.len + bytes.len() > self.buffer.len() {
+            return Err(core::fmt::Error);
+        }
+        self.buffer[self.len..self.len + bytes.len()].copy_from_slice(bytes);
+        self.len += bytes.len();
+        Ok(())
+    }
 }
 
 const MODIFIER_LEFT_SHIFT: u8 = 0x02;
@@ -268,8 +283,8 @@ fn char_to_hid(c: char) -> (u8, u8) {
         '~' => (0x35, MODIFIER_LEFT_SHIFT),
         '\\' => (0x31, 0),
         '|' => (0x31, MODIFIER_LEFT_SHIFT),
-        ' ' => (0x2C, 0),  // Space
-        '\n' => (0x28, 0), // Enter
-        _ => (0, 0),       // Unknown characters produce no key
+        ' ' => (0x2C, 0),
+        '\n' => (0x28, 0),
+        _ => (0, 0),
     }
 }
