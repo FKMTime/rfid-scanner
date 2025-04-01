@@ -149,6 +149,14 @@ fn main() -> ! {
         rp_pico::pac::NVIC::unmask(rp_pico::hal::pac::Interrupt::USBCTRL_IRQ);
     };
 
+    let kb = KeyboardReport {
+        keycodes: [0, 0, 0, 0, 0, 0],
+        leds: 0,
+        modifier: 0,
+        reserved: 0,
+    };
+    push_keyboard(kb).ok().unwrap_or(0);
+
     let mut delay = OwnDelay {};
     loop {
         if mfrc522.picc_is_new_card_present().is_ok() {
