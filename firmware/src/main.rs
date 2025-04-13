@@ -19,12 +19,14 @@ use usb_device::{
 };
 use usbd_hid::descriptor::KeyboardReport;
 use usbd_hid::{descriptor::SerializedDescriptor, hid_class::HIDClass};
+use usbd_picotool_reset::PicoToolReset;
 
 const KEY_PRESS_TIME: u32 = 16;
 
 static mut USB_DEVICE: Option<UsbDevice<rp_pico::hal::usb::UsbBus>> = None;
 static mut USB_BUS: Option<UsbBusAllocator<rp_pico::hal::usb::UsbBus>> = None;
 static mut USB_HID: Option<HIDClass<rp_pico::hal::usb::UsbBus>> = None;
+static mut PICOTOOL: Option<PicoToolReset<'static, rp_pico::hal::usb::UsbBus>> = None;
 static mut OWN_DELAY: Option<Delay> = None;
 static mut TIMER: Option<Timer> = None;
 
@@ -132,7 +134,12 @@ fn main() -> ! {
         USB_HID = Some(usb_hid);
     }
 
-    let usb_dev = UsbDeviceBuilder::new(bus_ref, UsbVidPid(0x16C0, 0x27DB))
+    let picotool: PicoToolReset<_> = PicoToolReset::new(unsafe { USB_BUS.as_ref().unwrap() });
+    unsafe {
+        PICOTOOL = Some(picotool);
+    }
+
+    let usb_dev = UsbDeviceBuilder::new(bus_ref, UsbVidPid(0x2e8a, 0x0003))
         .strings(&[StringDescriptors::default()
             .manufacturer("FKM")
             .product("FKM Rfid Scanner")
@@ -211,7 +218,8 @@ fn push_keyboard(report: KeyboardReport) -> Result<usize, usb_device::UsbError> 
 unsafe fn USBCTRL_IRQ() {
     let usb_dev = unsafe { USB_DEVICE.as_mut().unwrap() };
     let usb_hid = unsafe { USB_HID.as_mut().unwrap() };
-    usb_dev.poll(&mut [usb_hid]);
+    let picotool = unsafe { PICOTOOL.as_mut().unwrap() };
+    usb_dev.poll(&mut [usb_hid, picotool]);
 }
 
 struct StringBuffer {
