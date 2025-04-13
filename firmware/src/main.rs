@@ -20,7 +20,7 @@ use usb_device::{
 use usbd_hid::descriptor::KeyboardReport;
 use usbd_hid::{descriptor::SerializedDescriptor, hid_class::HIDClass};
 
-const KEY_PRESS_TIME: u32 = 8;
+const KEY_PRESS_TIME: u32 = 16;
 
 static mut USB_DEVICE: Option<UsbDevice<rp_pico::hal::usb::UsbBus>> = None;
 static mut USB_BUS: Option<UsbBusAllocator<rp_pico::hal::usb::UsbBus>> = None;
@@ -127,18 +127,18 @@ fn main() -> ! {
     }
 
     let bus_ref = unsafe { USB_BUS.as_ref().unwrap() };
-    let usb_hid = HIDClass::new(bus_ref, KeyboardReport::desc(), 1);
+    let usb_hid = HIDClass::new(bus_ref, KeyboardReport::desc(), 10);
     unsafe {
         USB_HID = Some(usb_hid);
     }
 
-    let usb_dev = UsbDeviceBuilder::new(bus_ref, UsbVidPid(0x1234, 0x5678))
+    let usb_dev = UsbDeviceBuilder::new(bus_ref, UsbVidPid(0x16C0, 0x27DB))
         .strings(&[StringDescriptors::default()
             .manufacturer("FKM")
             .product("FKM Rfid Scanner")
-            .serial_number("RFID001")])
+            .serial_number("FKMRFID001")])
         .unwrap()
-        .device_class(0)
+        .device_class(0x03)
         .build();
 
     unsafe {
