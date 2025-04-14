@@ -20,6 +20,7 @@ use usb_device::{
 use usbd_hid::descriptor::KeyboardReport;
 use usbd_hid::{descriptor::SerializedDescriptor, hid_class::HIDClass};
 use usbd_picotool_reset::PicoToolReset;
+use usbd_serial::SerialPort;
 
 const KEY_PRESS_TIME: u32 = 16;
 
@@ -27,6 +28,7 @@ static mut USB_DEVICE: Option<UsbDevice<rp_pico::hal::usb::UsbBus>> = None;
 static mut USB_BUS: Option<UsbBusAllocator<rp_pico::hal::usb::UsbBus>> = None;
 static mut USB_HID: Option<HIDClass<rp_pico::hal::usb::UsbBus>> = None;
 static mut PICOTOOL: Option<PicoToolReset<'static, rp_pico::hal::usb::UsbBus>> = None;
+static mut SERIAL_PORT: Option<SerialPort<'static, rp_pico::hal::usb::UsbBus>> = None;
 static mut OWN_DELAY: Option<Delay> = None;
 static mut TIMER: Option<Timer> = None;
 
@@ -135,8 +137,10 @@ fn main() -> ! {
     }
 
     let picotool: PicoToolReset<_> = PicoToolReset::new(unsafe { USB_BUS.as_ref().unwrap() });
+    let serial = SerialPort::new(unsafe { USB_BUS.as_ref().unwrap() });
     unsafe {
         PICOTOOL = Some(picotool);
+        SERIAL_PORT = Some(serial);
     }
 
     let usb_dev = UsbDeviceBuilder::new(bus_ref, UsbVidPid(0x2e8a, 0x0003))
@@ -219,7 +223,15 @@ unsafe fn USBCTRL_IRQ() {
     let usb_dev = unsafe { USB_DEVICE.as_mut().unwrap() };
     let usb_hid = unsafe { USB_HID.as_mut().unwrap() };
     let picotool = unsafe { PICOTOOL.as_mut().unwrap() };
-    usb_dev.poll(&mut [usb_hid, picotool]);
+    let serial = unsafe { SERIAL_PORT.as_mut().unwrap() };
+    usb_dev.poll(&mut [usb_hid, serial]);
+
+    let baud_rate = serial.line_coding().data_rate();
+    if baud_rate == 1200 {
+        serial.flush();
+        cortex_m::interrupt::disable();
+        reset_to_usb_boot(0, 0);
+    }
 }
 
 struct StringBuffer {
