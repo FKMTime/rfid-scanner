@@ -409,7 +409,6 @@ dependencies = [
  "rp-pico",
  "usb-device",
  "usbd-hid",
- "usbd-picotool-reset",
  "usbd-serial",
 ]
 
@@ -621,16 +620,6 @@ dependencies = [
  "serde",
  "syn 1.0.109",
  "usbd-hid-descriptors",
-]
-
-[[package]]
-name = "usbd-picotool-reset"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a01a8108a68e3b0af37c2f6e05b0cc4e93476a17c1aba002ac5cef3c391cbf5f"
-dependencies = [
- "rp2040-hal",
- "usb-device",
 ]
 
 [[package]]

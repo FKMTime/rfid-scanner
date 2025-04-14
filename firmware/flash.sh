@@ -14,7 +14,9 @@ wait_for_rpi_rp2() {
     done
 }
 
-stty -F /dev/ttyACM* 1200
+echo "Sending reset signal to first available serial"
+stty -F /dev/ttyACM* 1200 &> /dev/null
 wait_for_rpi_rp2
+
 picotool load -t elf "$@"
 picotool reboot

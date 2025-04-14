@@ -19,7 +19,6 @@ use usb_device::{
 };
 use usbd_hid::descriptor::KeyboardReport;
 use usbd_hid::{descriptor::SerializedDescriptor, hid_class::HIDClass};
-use usbd_picotool_reset::PicoToolReset;
 use usbd_serial::SerialPort;
 
 const KEY_PRESS_TIME: u32 = 16;
@@ -27,7 +26,6 @@ const KEY_PRESS_TIME: u32 = 16;
 static mut USB_DEVICE: Option<UsbDevice<rp_pico::hal::usb::UsbBus>> = None;
 static mut USB_BUS: Option<UsbBusAllocator<rp_pico::hal::usb::UsbBus>> = None;
 static mut USB_HID: Option<HIDClass<rp_pico::hal::usb::UsbBus>> = None;
-static mut PICOTOOL: Option<PicoToolReset<'static, rp_pico::hal::usb::UsbBus>> = None;
 static mut SERIAL_PORT: Option<SerialPort<'static, rp_pico::hal::usb::UsbBus>> = None;
 static mut OWN_DELAY: Option<Delay> = None;
 static mut TIMER: Option<Timer> = None;
@@ -136,10 +134,8 @@ fn main() -> ! {
         USB_HID = Some(usb_hid);
     }
 
-    let picotool: PicoToolReset<_> = PicoToolReset::new(unsafe { USB_BUS.as_ref().unwrap() });
     let serial = SerialPort::new(unsafe { USB_BUS.as_ref().unwrap() });
     unsafe {
-        PICOTOOL = Some(picotool);
         SERIAL_PORT = Some(serial);
     }
 
@@ -173,11 +169,6 @@ fn main() -> ! {
         if mfrc522.picc_is_new_card_present().is_ok() {
             let card = mfrc522.get_card(blocking_mfrc522::consts::UidSize::Four);
             if let Ok(card) = card {
-                if card.get_number() == 1264825046 {
-                    cortex_m::interrupt::disable();
-                    reset_to_usb_boot(0, 0);
-                }
-
                 let uid = card.get_number();
                 let mut buffer = StringBuffer::new();
                 write!(&mut buffer, "{}\n", uid).unwrap();
@@ -222,7 +213,6 @@ fn push_keyboard(report: KeyboardReport) -> Result<usize, usb_device::UsbError> 
 unsafe fn USBCTRL_IRQ() {
     let usb_dev = unsafe { USB_DEVICE.as_mut().unwrap() };
     let usb_hid = unsafe { USB_HID.as_mut().unwrap() };
-    let picotool = unsafe { PICOTOOL.as_mut().unwrap() };
     let serial = unsafe { SERIAL_PORT.as_mut().unwrap() };
     usb_dev.poll(&mut [usb_hid, serial]);
 
